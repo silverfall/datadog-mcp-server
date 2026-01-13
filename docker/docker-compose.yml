@@ -1,13 +1,14 @@
-version: '3.8'
-
 services:
   mcp-datadog:
     build:
-      context: .
-      dockerfile: Dockerfile.mcp
+      context: ..
+      dockerfile: docker/Dockerfile.mcp
     container_name: mcp-datadog-server
     
     # Environment variables
+    # Environment file
+    env_file:
+      - .env
     environment:
       DD_API_KEY: ${DD_API_KEY}
       DD_APP_KEY: ${DD_APP_KEY}
@@ -59,6 +60,4 @@ networks:
   default:
     name: mcp-network
 
-# Environment file
-env_file:
-  - .env
+

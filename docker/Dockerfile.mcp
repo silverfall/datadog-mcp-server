@@ -19,9 +19,12 @@ RUN pip install --no-cache-dir -r /app/src/requirements.txt
 RUN useradd -m -u 1000 mcp && chown -R mcp:mcp /app
 USER mcp
 
+# Set PYTHONPATH to include /app for module imports
+ENV PYTHONPATH=/app:$PYTHONPATH
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "from src.mcp_datadog_server import create_mcp_server; create_mcp_server()" || exit 1
 
 # Start MCP server
-CMD ["python", "-m", "src.start_mcp_server"]
+CMD ["python", "/app/src/start_mcp_server.py"]
