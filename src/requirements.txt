@@ -1,0 +1,19 @@
+# MCP Datadog Server Dependencies
+
+# MCP Protocol SDK
+mcp>=0.5.0
+
+# Datadog API Client
+datadog>=0.47.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Async support
+asyncio>=3.4.3
+
+# HTTP client
+httpx>=0.24.0
+
+# Optional: for better logging
+structlog>=23.0.0
