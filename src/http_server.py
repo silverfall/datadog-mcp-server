@@ -25,6 +25,15 @@ from src.mcp_datadog_server import DatadogMetricsClient
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
+# Get credentials from environment
+DD_API_KEY = os.getenv("DD_API_KEY")
+DD_APP_KEY = os.getenv("DD_APP_KEY")
+DD_SITE = os.getenv("DD_SITE", "datadoghq.com")
+
+if not DD_API_KEY or not DD_APP_KEY:
+    print("ERROR: DD_API_KEY and DD_APP_KEY environment variables are required")
+    sys.exit(1)
+
 app = FastAPI(
     title="Datadog MCP HTTP Server",
     description="HTTP wrapper for MCP Datadog Server with Server-Sent Events streaming",
@@ -32,7 +41,7 @@ app = FastAPI(
 )
 
 # Initialize Datadog client
-client = DatadogMetricsClient()
+client = DatadogMetricsClient(DD_API_KEY, DD_APP_KEY, DD_SITE)
 
 
 @app.get("/health")
