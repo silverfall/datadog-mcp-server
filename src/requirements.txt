@@ -19,5 +19,9 @@ httpx>=0.24.0
 fastapi>=0.104.0
 uvicorn>=0.24.0
 
+# Image Generation
+matplotlib>=3.8.0
+Pillow>=10.0.0
+
 # Optional: for better logging
 structlog>=23.0.0

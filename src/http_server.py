@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Header, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from dotenv import load_dotenv
 
 # Add src to path
@@ -99,6 +99,15 @@ async def list_tools(authorized: bool = Depends(verify_token)):
                 "description": "Get tag information for a metric",
                 "parameters": {
                     "metric_name": {"type": "string", "description": "Full metric name"}
+                }
+            },
+            {
+                "name": "generate_metric_chart",
+                "description": "Generate a PNG chart image for metrics",
+                "parameters": {
+                    "query": {"type": "string", "description": "Datadog metric query"},
+                    "days_back": {"type": "integer", "description": "Days to look back (default: 7)"},
+                    "title": {"type": "string", "description": "Chart title (optional)"}
                 }
             }
         ]
@@ -331,6 +340,47 @@ async def call_tool_stream(request: Dict[str, Any], authorized: bool = Depends(v
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
+@app.get("/generate_metric_chart")
+async def generate_chart_endpoint(
+    query: str = Query(..., description="Datadog metric query"),
+    days_back: int = Query(7, description="Days to look back"),
+    title: str = Query(None, description="Chart title"),
+    format: str = Query("png", description="Output format: png or base64"),
+    authorized: bool = Depends(verify_token)
+):
+    """
+    Generate a chart image for Datadog metrics.
+    
+    Example: /generate_metric_chart?query=avg:system.cpu.user{*}&days_back=7&format=png
+    """
+    try:
+        import time
+        to_ts = int(time.time())
+        from_ts = to_ts - days_back * 24 * 3600
+        
+        result = client.generate_metric_image(query, from_ts, to_ts, title, format=format)
+        
+        if result.get("status") != "success":
+            raise HTTPException(status_code=400, detail=result.get("error", "Failed to generate image"))
+        
+        if format == "base64":
+            return {
+                "status": "success",
+                "tool": "generate_metric_chart",
+                "parameters": {"query": query, "days_back": days_back, "title": title},
+                "result": result
+            }
+        else:
+            # Return PNG image directly
+            return Response(
+                content=result["image_bytes"],
+                media_type="image/png",
+                headers={"Content-Disposition": f'inline; filename="metric_chart.png"'}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 if __name__ == "__main__":
     port = int(os.getenv("MCP_HTTP_PORT", 8000))
     
@@ -357,6 +407,8 @@ if __name__ == "__main__":
        
        GET  /get_metric_tags           - Get metric tags (JSON response)
        GET  /get_metric_tags/stream    - Get metric tags (SSE streaming)
+       
+       GET  /generate_metric_chart     - Generate chart image (PNG/base64)
        
        POST /call                      - Call any tool (JSON response)
        POST /call/stream               - Call any tool (SSE streaming)

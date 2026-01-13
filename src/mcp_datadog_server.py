@@ -19,7 +19,10 @@ import os
 import sys
 import json
 import time
+import io
+import base64
 from typing import Any
+from datetime import datetime
 import logging
 
 # MCP imports
@@ -30,6 +33,13 @@ import mcp.types as types
 from datadog_api_client.v1 import ApiClient, Configuration
 from datadog_api_client.v1.api.metrics_api import MetricsApi
 from datadog_api_client.v1.api.tags_api import TagsApi
+
+# Image generation
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from PIL import Image
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -199,6 +209,100 @@ class DatadogMetricsClient:
                 "error": str(e),
             }
 
+    def generate_metric_image(
+        self,
+        query: str,
+        from_timestamp: int,
+        to_timestamp: int,
+        title: str = None,
+        format: str = "png"
+    ) -> dict[str, Any]:
+        """
+        Generate a chart image for Datadog metrics.
+
+        Args:
+            query: Datadog metric query
+            from_timestamp: Start time (unix seconds)
+            to_timestamp: End time (unix seconds)
+            title: Chart title (optional)
+            format: Image format - 'png' or 'base64'
+
+        Returns:
+            Dictionary with image data or base64 string
+        """
+        try:
+            # Query metrics first
+            result = self.query_metrics(query, from_timestamp, to_timestamp)
+            
+            if result.get("status") != "success" or not result.get("series"):
+                return {
+                    "status": "error",
+                    "error": "No data available for the query"
+                }
+            
+            # Create figure
+            plt.figure(figsize=(12, 6))
+            
+            # Plot each series
+            for series in result["series"]:
+                timestamps = [p[0] for p in series["points"]]
+                values = [p[1] for p in series["points"]]
+                
+                # Convert timestamps to datetime
+                dates = [datetime.fromtimestamp(ts) for ts in timestamps]
+                
+                # Plot line
+                label = series["scope"] if series["scope"] else query
+                plt.plot(dates, values, marker='o', linestyle='-', linewidth=2, markersize=4, label=label)
+            
+            # Formatting
+            plt.xlabel('Time', fontsize=12)
+            plt.ylabel('Value', fontsize=12)
+            plt.title(title or query, fontsize=14, fontweight='bold')
+            plt.grid(True, alpha=0.3)
+            plt.legend(loc='best')
+            
+            # Format x-axis
+            plt.gcf().autofmt_xdate()
+            ax = plt.gca()
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+            
+            plt.tight_layout()
+            
+            # Save to buffer
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            plt.close()
+            
+            if format == "base64":
+                # Return base64 encoded image
+                img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+                return {
+                    "status": "success",
+                    "query": query,
+                    "format": "base64",
+                    "image": img_base64,
+                    "mime_type": "image/png"
+                }
+            else:
+                # Return raw bytes
+                return {
+                    "status": "success",
+                    "query": query,
+                    "format": "png",
+                    "image_bytes": buf.getvalue(),
+                    "mime_type": "image/png"
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to generate image: {e}")
+            return {
+                "status": "error",
+                "query": query,
+                "error": str(e)
+            }
+
 
 # =============================================================================
 # MCP Server Setup
@@ -270,10 +374,34 @@ def create_mcp_server() -> FastMCP:
         result = dd_client.get_metric_tags(metric_name)
         return json.dumps(result, indent=2)
 
+    @mcp.tool()
+    def generate_metric_chart(
+        query: str,
+        days_back: int = 7,
+        title: str = None
+    ) -> str:
+        """
+        Generate a PNG chart image for Datadog metrics.
+        
+        Args:
+            query: Datadog metric query (e.g., 'avg:system.cpu.user{*}')
+            days_back: Number of days to look back (default: 7)
+            title: Chart title (optional, defaults to query)
+        
+        Returns:
+            JSON string with base64-encoded PNG image
+        """
+        to_ts = int(time.time())
+        from_ts = to_ts - days_back * 24 * 3600
+        
+        result = dd_client.generate_metric_image(query, from_ts, to_ts, title, format="base64")
+        return json.dumps(result, indent=2)
+
     logger.info("✅ MCP Server created with tools:")
     logger.info("  - query_metrics: Query timeseries data")
     logger.info("  - search_metrics: Search available metrics")
     logger.info("  - get_metric_tags: Get metric tag information")
+    logger.info("  - generate_metric_chart: Generate PNG chart image")
 
     return mcp
 
