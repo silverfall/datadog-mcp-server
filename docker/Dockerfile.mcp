@@ -26,5 +26,11 @@ ENV PYTHONPATH=/app:$PYTHONPATH
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "from src.mcp_datadog_server import create_mcp_server; create_mcp_server()" || exit 1
 
-# Start MCP server
-CMD ["python", "/app/src/start_mcp_server.py"]
+# Start MCP server (stdio mode) by default
+# To run HTTP server instead:
+#   docker run -p 8000:8000 -e SERVER_MODE=http mcp-datadog
+# 
+# Environment variables:
+#   SERVER_MODE=mcp (default) or http
+#   MCP_HTTP_PORT=8000 (for HTTP mode)
+CMD ["sh", "-c", "if [ \"$SERVER_MODE\" = \"http\" ]; then python /app/src/http_server.py; else python /app/src/start_mcp_server.py; fi"]

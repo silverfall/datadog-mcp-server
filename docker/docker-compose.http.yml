@@ -1,0 +1,53 @@
+services:
+  mcp-datadog-http:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp
+    container_name: mcp-datadog-http
+    
+    # Environment variables for HTTP mode
+    env_file:
+      - .env
+    environment:
+      SERVER_MODE: http
+      MCP_HTTP_PORT: 8000
+      DD_API_KEY: ${DD_API_KEY}
+      DD_APP_KEY: ${DD_APP_KEY}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    
+    # HTTP port
+    ports:
+      - "${HTTP_PORT:-8000}:8000"
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  default:
+    name: mcp-network
