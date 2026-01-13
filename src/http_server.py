@@ -13,7 +13,7 @@ import sys
 from typing import Any, Dict, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Header, Depends
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
@@ -29,10 +29,29 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 DD_API_KEY = os.getenv("DD_API_KEY")
 DD_APP_KEY = os.getenv("DD_APP_KEY")
 DD_SITE = os.getenv("DD_SITE", "datadoghq.com")
+AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN", None)  # Optional: if set, requires Authorization header
 
 if not DD_API_KEY or not DD_APP_KEY:
     print("ERROR: DD_API_KEY and DD_APP_KEY environment variables are required")
     sys.exit(1)
+
+# Authorization dependency
+def verify_token(authorization: Optional[str] = Header(None)):
+    """Verify authorization token if AUTH_TOKEN is set."""
+    if AUTH_TOKEN:  # Only enforce if token is configured
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Missing Authorization header")
+        
+        # Accept "Bearer token" format
+        if authorization.startswith("Bearer "):
+            token = authorization[7:]
+        else:
+            token = authorization
+        
+        if token != AUTH_TOKEN:
+            raise HTTPException(status_code=403, detail="Invalid authorization token")
+    
+    return True
 
 app = FastAPI(
     title="Datadog MCP HTTP Server",
@@ -46,16 +65,17 @@ client = DatadogMetricsClient(DD_API_KEY, DD_APP_KEY, DD_SITE)
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint (no auth required)."""
     return {
         "status": "healthy",
         "service": "datadog-mcp-http",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "auth_required": bool(AUTH_TOKEN)
     }
 
 
 @app.get("/tools")
-async def list_tools():
+async def list_tools(authorized: bool = Depends(verify_token)):
     """List available MCP tools."""
     return {
         "tools": [
@@ -88,7 +108,8 @@ async def list_tools():
 @app.get("/query_metrics")
 async def query_metrics_endpoint(
     query: str = Query(..., description="Datadog metric query"),
-    days_back: int = Query(7, description="Days to look back")
+    days_back: int = Query(7, description="Days to look back"),
+    authorized: bool = Depends(verify_token)
 ):
     """
     Query Datadog metrics.
@@ -110,7 +131,8 @@ async def query_metrics_endpoint(
 @app.get("/query_metrics/stream")
 async def query_metrics_stream(
     query: str = Query(..., description="Datadog metric query"),
-    days_back: int = Query(7, description="Days to look back")
+    days_back: int = Query(7, description="Days to look back"),
+    authorized: bool = Depends(verify_token)
 ):
     """
     Query Datadog metrics with SSE (Server-Sent Events) streaming.
@@ -139,7 +161,8 @@ async def query_metrics_stream(
 
 @app.get("/search_metrics")
 async def search_metrics_endpoint(
-    prefix: str = Query(..., description="Metric prefix")
+    prefix: str = Query(..., description="Metric prefix"),
+    authorized: bool = Depends(verify_token)
 ):
     """
     Search for Datadog metrics by prefix.
@@ -160,7 +183,8 @@ async def search_metrics_endpoint(
 
 @app.get("/search_metrics/stream")
 async def search_metrics_stream(
-    prefix: str = Query(..., description="Metric prefix")
+    prefix: str = Query(..., description="Metric prefix"),
+    authorized: bool = Depends(verify_token)
 ):
     """
     Search for Datadog metrics with SSE streaming.
@@ -184,7 +208,8 @@ async def search_metrics_stream(
 
 @app.get("/get_metric_tags")
 async def get_metric_tags_endpoint(
-    metric_name: str = Query(..., description="Metric name")
+    metric_name: str = Query(..., description="Metric name"),
+    authorized: bool = Depends(verify_token)
 ):
     """
     Get tags for a Datadog metric.
@@ -205,7 +230,8 @@ async def get_metric_tags_endpoint(
 
 @app.get("/get_metric_tags/stream")
 async def get_metric_tags_stream(
-    metric_name: str = Query(..., description="Metric name")
+    metric_name: str = Query(..., description="Metric name"),
+    authorized: bool = Depends(verify_token)
 ):
     """
     Get metric tags with SSE streaming.
@@ -228,7 +254,7 @@ async def get_metric_tags_stream(
 
 
 @app.post("/call")
-async def call_tool(request: Dict[str, Any]):
+async def call_tool(request: Dict[str, Any], authorized: bool = Depends(verify_token)):
     """
     Universal endpoint to call any MCP tool.
     
@@ -270,7 +296,7 @@ async def call_tool(request: Dict[str, Any]):
 
 
 @app.post("/call/stream")
-async def call_tool_stream(request: Dict[str, Any]):
+async def call_tool_stream(request: Dict[str, Any], authorized: bool = Depends(verify_token)):
     """
     Universal endpoint with SSE streaming.
     
@@ -308,6 +334,8 @@ async def call_tool_stream(request: Dict[str, Any]):
 if __name__ == "__main__":
     port = int(os.getenv("MCP_HTTP_PORT", 8000))
     
+    auth_status = "🔐 AUTH ENABLED" if AUTH_TOKEN else "🔓 AUTH DISABLED (not recommended for production)"
+    
     print(f"""
     ╔══════════════════════════════════════════════════════════════╗
     ║         Datadog MCP HTTP Server (with SSE Streaming)         ║
@@ -315,9 +343,10 @@ if __name__ == "__main__":
     
     🌐 Server: http://localhost:{port}
     📚 API Docs: http://localhost:{port}/docs
+    {auth_status}
     
     📡 Endpoints:
-       GET  /health                    - Health check
+       GET  /health                    - Health check (no auth)
        GET  /tools                     - List available tools
        
        GET  /query_metrics             - Query metrics (JSON response)
@@ -335,6 +364,10 @@ if __name__ == "__main__":
     🔑 Required Environment:
        DD_API_KEY=your-api-key
        DD_APP_KEY=your-app-key
+    
+    🔐 Optional Authorization:
+       MCP_AUTH_TOKEN=your-secret-token
+       (If set, requires: Authorization: Bearer your-secret-token)
     
     """)
     

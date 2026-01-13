@@ -256,6 +256,76 @@ curl -N "http://localhost:8000/query_metrics/stream?query=avg:system.cpu.user{*}
 | `DD_APP_KEY` | Required | Datadog application key |
 | `DD_SITE` | `datadoghq.com` | Datadog site |
 | `LOG_LEVEL` | `info` | Logging level |
+| `MCP_AUTH_TOKEN` | (none) | Optional: Bearer token for authorization |
+
+## Authorization
+
+### Optional Bearer Token
+
+You can optionally enable authorization by setting `MCP_AUTH_TOKEN`:
+
+```bash
+export MCP_AUTH_TOKEN=your-secret-token-here
+python http_server.py
+```
+
+Or in docker-compose.yml:
+```yaml
+environment:
+  - MCP_AUTH_TOKEN=your-secret-token-here
+```
+
+### Using Authorization
+
+Include the token in the `Authorization` header:
+
+```bash
+# Bearer format (recommended)
+curl -H "Authorization: Bearer your-secret-token-here" \
+  "http://localhost:8000/query_metrics?query=avg:system.cpu.user{*}"
+
+# Or plain token format
+curl -H "Authorization: your-secret-token-here" \
+  "http://localhost:8000/query_metrics?query=avg:system.cpu.user{*}"
+```
+
+### Without Authorization
+
+If `MCP_AUTH_TOKEN` is not set, all endpoints are public (no auth required).
+
+**⚠️ Security Note**: For production, always set `MCP_AUTH_TOKEN` and use HTTPS!
+
+### Health Check (No Auth)
+
+The `/health` endpoint never requires authorization:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Response shows if auth is enabled:
+```json
+{
+  "status": "healthy",
+  "service": "datadog-mcp-http",
+  "version": "1.0.0",
+  "auth_required": true
+}
+```
+
+### 401 vs 403 Errors
+
+- **401 Unauthorized**: Missing `Authorization` header
+- **403 Forbidden**: Invalid token
+
+```bash
+# Missing header → 401
+curl http://localhost:8000/query_metrics?query=avg:system.cpu.user
+
+# Invalid token → 403
+curl -H "Authorization: Bearer wrong-token" \
+  http://localhost:8000/query_metrics?query=avg:system.cpu.user
+```
 
 ## Performance
 
